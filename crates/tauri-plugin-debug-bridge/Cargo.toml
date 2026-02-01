@@ -1,0 +1,22 @@
+[package]
+name = "tauri-plugin-debug-bridge"
+version = "0.1.0"
+description = "A dev-only Tauri plugin exposing HTTP+WS debug server for automation"
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+tauri = { version = "2", features = [] }
+axum = { version = "0.8", features = ["ws"] }
+tower-http = { version = "0.6", features = ["cors"] }
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+base64 = "0.22"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
