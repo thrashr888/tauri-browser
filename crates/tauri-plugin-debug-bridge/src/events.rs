@@ -3,7 +3,6 @@ use std::sync::Arc;
 use axum::{extract::State, http::StatusCode, response::Json};
 use serde::{Deserialize, Serialize};
 use tauri::{Emitter, Runtime};
-use tokio::sync::Mutex;
 
 use crate::BridgeState;
 
@@ -26,10 +25,9 @@ pub struct EventInfo {
 
 /// POST /events/emit — emit a Tauri event.
 pub async fn emit<R: Runtime>(
-    State(state): State<Arc<Mutex<BridgeState<R>>>>,
+    State(state): State<Arc<BridgeState<R>>>,
     Json(req): Json<EmitRequest>,
 ) -> Result<Json<EmitResponse>, (StatusCode, String)> {
-    let state = state.lock().await;
     state
         .app
         .emit(&req.event, req.payload)
@@ -40,7 +38,7 @@ pub async fn emit<R: Runtime>(
 
 /// GET /events/list — list known event names.
 pub async fn list<R: Runtime>(
-    State(_state): State<Arc<Mutex<BridgeState<R>>>>,
+    State(_state): State<Arc<BridgeState<R>>>,
 ) -> Result<Json<Vec<EventInfo>>, (StatusCode, String)> {
     // TODO: Tauri doesn't expose a public event registry.
     // We could track events emitted/listened through this plugin.

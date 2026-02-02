@@ -2,16 +2,19 @@ use std::{collections::HashMap, sync::Arc};
 
 use axum::{
     Router,
-    response::Json,
+    extract::DefaultBodyLimit,
+    http::{Request, StatusCode},
+    middleware::{self, Next},
+    response::{Json, Response},
     routing::{get, post},
 };
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 use tauri::{
     AppHandle, Manager, Runtime,
     plugin::{Builder, TauriPlugin},
 };
-use tokio::sync::{Mutex, oneshot};
-use tower_http::cors::CorsLayer;
+use tokio::sync::{Mutex, oneshot}; // Mutex used only for PendingResults internals
 
 mod backend;
 mod events;
@@ -50,6 +53,47 @@ struct HealthResponse {
     version: &'static str,
 }
 
+/// Generate a random 32-character hex token for auth.
+fn generate_auth_token() -> String {
+    let mut rng = rand::thread_rng();
+    let bytes: [u8; 16] = Rng::r#gen(&mut rng);
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// Middleware that checks the `X-Debug-Bridge-Token` header on every request
+/// except `/health`.
+async fn auth_middleware(
+    req: Request<axum::body::Body>,
+    next: Next,
+) -> Result<Response, StatusCode> {
+    // Skip auth for health check endpoint.
+    if req.uri().path() == "/health" {
+        return Ok(next.run(req).await);
+    }
+
+    let expected = req
+        .extensions()
+        .get::<AuthToken>()
+        .map(|t| t.0.clone())
+        .unwrap_or_default();
+
+    let provided = req
+        .headers()
+        .get("X-Debug-Bridge-Token")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+
+    if provided != expected {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+
+    Ok(next.run(req).await)
+}
+
+/// Wrapper to store the auth token in request extensions.
+#[derive(Clone)]
+struct AuthToken(String);
+
 /// Tauri command: receives JS eval results from the webview.
 /// Called by injected JS via `window.__TAURI__.invoke('plugin:debug-bridge|eval_callback', ...)`.
 #[tauri::command]
@@ -72,10 +116,11 @@ async fn eval_callback(
 }
 
 /// Build the axum router with all debug bridge routes.
-fn build_router<R: Runtime>(state: Arc<Mutex<BridgeState<R>>>) -> Router {
-    Router::new()
-        // Health
-        .route("/health", get(health))
+fn build_router<R: Runtime>(state: Arc<BridgeState<R>>, token: String) -> Router {
+    let auth_token = AuthToken(token);
+
+    // Stateful routes (require BridgeState via axum State extractor).
+    let stateful = Router::new()
         // Webview
         .route("/eval", post(webview::webview_eval::<R>))
         .route("/screenshot", get(webview::screenshot::<R>))
@@ -94,8 +139,17 @@ fn build_router<R: Runtime>(state: Arc<Mutex<BridgeState<R>>>) -> Router {
         // Logs (WebSocket)
         .route("/logs", get(logs::logs_ws::<R>))
         .route("/console", get(logs::console_ws::<R>))
-        .layer(CorsLayer::permissive())
-        .with_state(state)
+        .with_state(state);
+
+    // Combine stateless health route with stateful routes, then apply security layers.
+    Router::new()
+        .route("/health", get(health))
+        .merge(stateful)
+        // Security: 1 MB body size limit
+        .layer(DefaultBodyLimit::max(1_048_576))
+        // Security: auth token middleware
+        .layer(axum::Extension(auth_token))
+        .layer(middleware::from_fn(auth_middleware))
 }
 
 async fn health() -> Json<HealthResponse> {
@@ -121,25 +175,34 @@ pub fn init<R: Runtime>() -> TauriPlugin<R, Option<Config>> {
         .setup(move |app, api| {
             let port = api.config().as_ref().and_then(|c| c.port).unwrap_or(9229);
 
+            // Generate auth token for this session.
+            let token = generate_auth_token();
+            println!("debug-bridge auth token: {token}");
+            tracing::info!("debug-bridge auth token: {token}");
+
             // Share pending results with both the Tauri command and axum handlers.
             app.manage(pending.clone());
 
-            let state = Arc::new(Mutex::new(BridgeState {
+            let state = Arc::new(BridgeState {
                 app: app.clone(),
                 pending,
-            }));
+            });
 
-            let router = build_router(state);
+            let router = build_router(state, token);
 
             tauri::async_runtime::spawn(async move {
                 let addr = format!("127.0.0.1:{port}");
                 tracing::info!("debug-bridge listening on http://{addr}");
-                let listener = tokio::net::TcpListener::bind(&addr)
-                    .await
-                    .expect("failed to bind debug-bridge port");
-                axum::serve(listener, router)
-                    .await
-                    .expect("debug-bridge server error");
+                let listener = match tokio::net::TcpListener::bind(&addr).await {
+                    Ok(l) => l,
+                    Err(e) => {
+                        tracing::error!("failed to bind debug-bridge on {addr}: {e}");
+                        return;
+                    }
+                };
+                if let Err(e) = axum::serve(listener, router).await {
+                    tracing::error!("debug-bridge server error: {e}");
+                }
             });
 
             Ok(())

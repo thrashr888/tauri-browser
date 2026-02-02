@@ -2,13 +2,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::{
-    extract::State,
+    extract::{Query, State},
     http::StatusCode,
     response::{Json, Response},
 };
 use serde::{Deserialize, Serialize};
 use tauri::{Manager, Runtime, WebviewWindow};
-use tokio::sync::{Mutex, oneshot};
+use tokio::sync::oneshot;
 
 use crate::{BridgeState, EvalResult};
 
@@ -55,6 +55,11 @@ pub struct SnapshotResponse {
     pub title: String,
     pub url: String,
     pub elements: Vec<SnapshotElement>,
+}
+
+#[derive(Deserialize, Default)]
+pub struct SnapshotQuery {
+    pub interactive: Option<bool>,
 }
 
 fn get_window<R: Runtime>(
@@ -139,10 +144,9 @@ async fn eval_with_result<R: Runtime>(
 
 /// POST /eval — execute JS in the webview and return the result.
 pub async fn webview_eval<R: Runtime>(
-    State(state): State<Arc<Mutex<BridgeState<R>>>>,
+    State(state): State<Arc<BridgeState<R>>>,
     Json(req): Json<EvalRequest>,
 ) -> Result<Json<EvalResult>, (StatusCode, String)> {
-    let state = state.lock().await;
     let window = get_window(&state.app, req.window.as_deref())?;
     let result = eval_with_result(&state, &window, &req.js).await?;
     Ok(Json(result))
@@ -150,9 +154,8 @@ pub async fn webview_eval<R: Runtime>(
 
 /// GET /screenshot — capture the webview as a PNG image.
 pub async fn screenshot<R: Runtime>(
-    State(state): State<Arc<Mutex<BridgeState<R>>>>,
+    State(state): State<Arc<BridgeState<R>>>,
 ) -> Result<Response, (StatusCode, String)> {
-    let state = state.lock().await;
     let window = get_window(&state.app, None)?;
 
     let png_data = native_screenshot(&window).await?;
@@ -262,10 +265,11 @@ async fn native_screenshot<R: Runtime>(
 }
 
 /// GET /snapshot — dump the DOM as a ref-based accessibility tree.
+/// Pass `?interactive=true` to prune non-interactive leaf nodes.
 pub async fn snapshot<R: Runtime>(
-    State(state): State<Arc<Mutex<BridgeState<R>>>>,
+    State(state): State<Arc<BridgeState<R>>>,
+    Query(query): Query<SnapshotQuery>,
 ) -> Result<Json<SnapshotResponse>, (StatusCode, String)> {
-    let state = state.lock().await;
     let window = get_window(&state.app, None)?;
 
     let js = SNAPSHOT_JS;
@@ -273,12 +277,17 @@ pub async fn snapshot<R: Runtime>(
 
     match result.value {
         Some(val) => {
-            let snapshot: SnapshotResponse = serde_json::from_value(val).map_err(|e| {
+            let mut snapshot: SnapshotResponse = serde_json::from_value(val).map_err(|e| {
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     format!("failed to parse snapshot: {e}"),
                 )
             })?;
+
+            if query.interactive == Some(true) {
+                snapshot.elements = prune_non_interactive(snapshot.elements);
+            }
+
             Ok(Json(snapshot))
         }
         None => Err((
@@ -288,12 +297,27 @@ pub async fn snapshot<R: Runtime>(
     }
 }
 
+/// Recursively prune non-interactive leaf nodes from the snapshot tree.
+/// Keeps any element that is interactive, or that has a descendant that is interactive.
+fn prune_non_interactive(elements: Vec<SnapshotElement>) -> Vec<SnapshotElement> {
+    elements
+        .into_iter()
+        .filter_map(|mut el| {
+            el.children = prune_non_interactive(el.children);
+            if el.interactive || !el.children.is_empty() {
+                Some(el)
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
 /// POST /click — click an element by @ref or CSS selector.
 pub async fn click<R: Runtime>(
-    State(state): State<Arc<Mutex<BridgeState<R>>>>,
+    State(state): State<Arc<BridgeState<R>>>,
     Json(req): Json<ClickRequest>,
 ) -> Result<Json<EvalResult>, (StatusCode, String)> {
-    let state = state.lock().await;
     let window = get_window(&state.app, req.window.as_deref())?;
 
     let js = if req.selector.starts_with('@') {
@@ -329,10 +353,9 @@ pub async fn click<R: Runtime>(
 
 /// POST /fill — fill an input element with text.
 pub async fn fill<R: Runtime>(
-    State(state): State<Arc<Mutex<BridgeState<R>>>>,
+    State(state): State<Arc<BridgeState<R>>>,
     Json(req): Json<FillRequest>,
 ) -> Result<Json<EvalResult>, (StatusCode, String)> {
-    let state = state.lock().await;
     let window = get_window(&state.app, req.window.as_deref())?;
 
     let text_json = serde_json::to_string(&req.text).unwrap();
@@ -406,14 +429,11 @@ fn looks_like_expression(code: &str) -> bool {
     !keywords.iter().any(|kw| trimmed.starts_with(kw))
 }
 
-/// Simple UUID v4 generator (no external dep needed).
+/// Generate a random 128-bit hex ID for correlating eval requests.
 pub fn uuid_v4() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let t = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    format!("{t:032x}")
+    use rand::Rng;
+    let bytes: [u8; 16] = rand::thread_rng().r#gen();
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 /// JavaScript that walks the DOM and builds a ref-based accessibility tree.

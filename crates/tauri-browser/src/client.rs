@@ -7,15 +7,57 @@ pub struct BridgeClient {
     base_url: String,
     ws_url: String,
     http: reqwest::Client,
+    token: Option<String>,
 }
 
 impl BridgeClient {
-    pub fn new(port: u16) -> Self {
+    pub fn new(port: u16, token: Option<&str>) -> Self {
         Self {
             base_url: format!("http://127.0.0.1:{port}"),
             ws_url: format!("ws://127.0.0.1:{port}"),
             http: reqwest::Client::new(),
+            token: token.map(String::from),
         }
+    }
+
+    /// Build a GET request with auth header.
+    fn authed_get(&self, url: &str) -> reqwest::RequestBuilder {
+        let mut req = self.http.get(url);
+        if let Some(t) = &self.token {
+            req = req.header("X-Debug-Bridge-Token", t);
+        }
+        req
+    }
+
+    /// Build a POST request with auth header.
+    fn authed_post(&self, url: &str) -> reqwest::RequestBuilder {
+        let mut req = self.http.post(url);
+        if let Some(t) = &self.token {
+            req = req.header("X-Debug-Bridge-Token", t);
+        }
+        req
+    }
+
+    /// Connect a WebSocket with auth header.
+    async fn authed_ws(
+        &self,
+        url: &str,
+    ) -> Result<
+        tokio_tungstenite::WebSocketStream<
+            tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+        >,
+    > {
+        use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+        let mut request = url.into_client_request().context("building WS request")?;
+        if let Some(t) = &self.token {
+            request
+                .headers_mut()
+                .insert("X-Debug-Bridge-Token", t.parse().unwrap());
+        }
+        let (ws, _) = tokio_tungstenite::connect_async(request)
+            .await
+            .context("connecting to WebSocket")?;
+        Ok(ws)
     }
 
     pub async fn health(&self) -> Result<Value> {
@@ -30,8 +72,7 @@ impl BridgeClient {
 
     pub async fn screenshot(&self) -> Result<Vec<u8>> {
         let resp = self
-            .http
-            .get(format!("{}/screenshot", self.base_url))
+            .authed_get(&format!("{}/screenshot", self.base_url))
             .send()
             .await?;
         if !resp.status().is_success() {
@@ -45,7 +86,7 @@ impl BridgeClient {
         if interactive {
             url.push_str("?interactive=true");
         }
-        let resp = self.http.get(&url).send().await?;
+        let resp = self.authed_get(&url).send().await?;
         if !resp.status().is_success() {
             bail!("snapshot failed: {}", resp.text().await?);
         }
@@ -54,8 +95,7 @@ impl BridgeClient {
 
     pub async fn click(&self, selector: &str) -> Result<Value> {
         let resp = self
-            .http
-            .post(format!("{}/click", self.base_url))
+            .authed_post(&format!("{}/click", self.base_url))
             .json(&serde_json::json!({ "selector": selector }))
             .send()
             .await?;
@@ -67,8 +107,7 @@ impl BridgeClient {
 
     pub async fn fill(&self, selector: &str, text: &str) -> Result<Value> {
         let resp = self
-            .http
-            .post(format!("{}/fill", self.base_url))
+            .authed_post(&format!("{}/fill", self.base_url))
             .json(&serde_json::json!({ "selector": selector, "text": text }))
             .send()
             .await?;
@@ -80,8 +119,7 @@ impl BridgeClient {
 
     pub async fn run_js(&self, code: &str) -> Result<Value> {
         let resp = self
-            .http
-            .post(format!("{}/eval", self.base_url))
+            .authed_post(&format!("{}/eval", self.base_url))
             .json(&serde_json::json!({ "js": code }))
             .send()
             .await?;
@@ -94,8 +132,7 @@ impl BridgeClient {
     pub async fn invoke(&self, command: &str, args: &str) -> Result<Value> {
         let args: Value = serde_json::from_str(args).context("invalid JSON args")?;
         let resp = self
-            .http
-            .post(format!("{}/invoke", self.base_url))
+            .authed_post(&format!("{}/invoke", self.base_url))
             .json(&serde_json::json!({ "command": command, "args": args }))
             .send()
             .await?;
@@ -107,8 +144,7 @@ impl BridgeClient {
 
     pub async fn state(&self) -> Result<Value> {
         let resp = self
-            .http
-            .get(format!("{}/state", self.base_url))
+            .authed_get(&format!("{}/state", self.base_url))
             .send()
             .await?;
         if !resp.status().is_success() {
@@ -119,8 +155,7 @@ impl BridgeClient {
 
     pub async fn commands(&self) -> Result<Value> {
         let resp = self
-            .http
-            .get(format!("{}/commands", self.base_url))
+            .authed_get(&format!("{}/commands", self.base_url))
             .send()
             .await?;
         if !resp.status().is_success() {
@@ -131,8 +166,7 @@ impl BridgeClient {
 
     pub async fn windows(&self) -> Result<Value> {
         let resp = self
-            .http
-            .get(format!("{}/windows", self.base_url))
+            .authed_get(&format!("{}/windows", self.base_url))
             .send()
             .await?;
         if !resp.status().is_success() {
@@ -144,8 +178,7 @@ impl BridgeClient {
     pub async fn event_emit(&self, name: &str, payload: &str) -> Result<Value> {
         let payload: Value = serde_json::from_str(payload).context("invalid JSON payload")?;
         let resp = self
-            .http
-            .post(format!("{}/events/emit", self.base_url))
+            .authed_post(&format!("{}/events/emit", self.base_url))
             .json(&serde_json::json!({ "event": name, "payload": payload }))
             .send()
             .await?;
@@ -157,8 +190,7 @@ impl BridgeClient {
 
     pub async fn event_list(&self) -> Result<Value> {
         let resp = self
-            .http
-            .get(format!("{}/events/list", self.base_url))
+            .authed_get(&format!("{}/events/list", self.base_url))
             .send()
             .await?;
         if !resp.status().is_success() {
@@ -169,10 +201,7 @@ impl BridgeClient {
 
     pub async fn event_listen(&self, name: &str) -> Result<()> {
         let url = format!("{}/events/listen?name={name}", self.ws_url);
-        let (ws, _) = tokio_tungstenite::connect_async(&url)
-            .await
-            .context("connecting to event stream")?;
-
+        let ws = self.authed_ws(&url).await?;
         let (_, mut read) = ws.split();
         while let Some(msg) = read.next().await {
             match msg? {
@@ -188,10 +217,7 @@ impl BridgeClient {
 
     pub async fn stream_console(&self) -> Result<()> {
         let url = format!("{}/console", self.ws_url);
-        let (ws, _) = tokio_tungstenite::connect_async(&url)
-            .await
-            .context("connecting to console stream")?;
-
+        let ws = self.authed_ws(&url).await?;
         let (_, mut read) = ws.split();
         while let Some(msg) = read.next().await {
             match msg? {
@@ -206,16 +232,12 @@ impl BridgeClient {
     }
 
     pub async fn stream_errors(&self) -> Result<()> {
-        // Errors are a filtered subset of console output
         self.stream_console().await
     }
 
     pub async fn stream_logs(&self, _level: &str) -> Result<()> {
         let url = format!("{}/logs", self.ws_url);
-        let (ws, _) = tokio_tungstenite::connect_async(&url)
-            .await
-            .context("connecting to log stream")?;
-
+        let ws = self.authed_ws(&url).await?;
         let (_, mut read) = ws.split();
         while let Some(msg) = read.next().await {
             match msg? {

@@ -15,6 +15,10 @@ struct Cli {
     #[arg(short, long, default_value_t = 9229, global = true)]
     port: u16,
 
+    /// Auth token (printed by the app on startup)
+    #[arg(short = 't', long, global = true, env = "TAURI_BROWSER_TOKEN")]
+    token: Option<String>,
+
     /// Output format
     #[arg(short, long, default_value = "text", global = true)]
     format: output::Format,
@@ -126,7 +130,7 @@ async fn main() -> Result<()> {
         .init();
 
     let cli = Cli::parse();
-    let client = client::BridgeClient::new(cli.port);
+    let client = client::BridgeClient::new(cli.port, cli.token.as_deref());
 
     match cli.command {
         Command::Connect => {

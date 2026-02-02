@@ -8,13 +8,12 @@ use axum::{
     response::Response,
 };
 use tauri::Runtime;
-use tokio::sync::Mutex;
 
 use crate::BridgeState;
 
 /// GET /logs — WebSocket endpoint for streaming Rust-side logs.
 pub async fn logs_ws<R: Runtime>(
-    State(_state): State<Arc<Mutex<BridgeState<R>>>>,
+    State(_state): State<Arc<BridgeState<R>>>,
     ws: WebSocketUpgrade,
 ) -> Response {
     ws.on_upgrade(handle_logs)
@@ -37,7 +36,7 @@ async fn handle_logs(mut socket: WebSocket) {
 
 /// GET /console — WebSocket endpoint for streaming JS console output.
 pub async fn console_ws<R: Runtime>(
-    State(_state): State<Arc<Mutex<BridgeState<R>>>>,
+    State(_state): State<Arc<BridgeState<R>>>,
     ws: WebSocketUpgrade,
 ) -> Response {
     ws.on_upgrade(handle_console)

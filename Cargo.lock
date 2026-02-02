@@ -3838,6 +3838,7 @@ dependencies = [
  "objc2-app-kit",
  "objc2-foundation",
  "objc2-web-kit",
+ "rand 0.8.5",
  "serde",
  "serde_json",
  "tauri",

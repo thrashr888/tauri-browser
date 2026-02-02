@@ -3,7 +3,6 @@ use std::sync::Arc;
 use axum::{extract::State, http::StatusCode, response::Json};
 use serde::{Deserialize, Serialize};
 use tauri::{Manager, Runtime};
-use tokio::sync::Mutex;
 
 use crate::{BridgeState, EvalResult};
 
@@ -30,12 +29,11 @@ pub struct WindowInfo {
 
 /// POST /invoke — call a registered Tauri command by routing through the webview.
 /// Since Tauri doesn't expose a Rust-side command invocation API, we inject JS
-/// that calls `window.__TAURI__.core.invoke()` and captures the result.
+/// that calls `window.__TAURI_INTERNALS__.invoke()` and captures the result.
 pub async fn invoke<R: Runtime>(
-    State(state): State<Arc<Mutex<BridgeState<R>>>>,
+    State(state): State<Arc<BridgeState<R>>>,
     Json(req): Json<InvokeRequest>,
 ) -> Result<Json<EvalResult>, (StatusCode, String)> {
-    let state = state.lock().await;
     let window = state
         .app
         .get_webview_window("main")
@@ -47,7 +45,7 @@ pub async fn invoke<R: Runtime>(
     let invoke_js = format!(
         r#"
         try {{
-            const result = await window.__TAURI__.core.invoke({cmd}, {args});
+            const result = await window.__TAURI_INTERNALS__.invoke({cmd}, {args});
             return result;
         }} catch(e) {{
             throw new Error('invoke failed: ' + e);
@@ -71,12 +69,12 @@ pub async fn invoke<R: Runtime>(
         r#"(async () => {{
             try {{
                 const __result = await (async () => {{ {code} }})();
-                await window.__TAURI__.core.invoke(
+                await window.__TAURI_INTERNALS__.invoke(
                     'plugin:debug-bridge|eval_callback',
                     {{ id: '{id}', success: true, value: __result, error: null }}
                 );
             }} catch(__e) {{
-                await window.__TAURI__.core.invoke(
+                await window.__TAURI_INTERNALS__.invoke(
                     'plugin:debug-bridge|eval_callback',
                     {{ id: '{id}', success: false, value: null, error: __e.toString() }}
                 );
@@ -111,7 +109,7 @@ pub async fn invoke<R: Runtime>(
 /// Since Tauri doesn't expose a public command registry, this endpoint
 /// is a placeholder that apps can populate via the plugin API.
 pub async fn commands<R: Runtime>(
-    State(_state): State<Arc<Mutex<BridgeState<R>>>>,
+    State(_state): State<Arc<BridgeState<R>>>,
 ) -> Result<Json<Vec<CommandInfo>>, (StatusCode, String)> {
     // TODO: Allow apps to register command metadata with the plugin.
     Ok(Json(vec![]))
@@ -120,7 +118,7 @@ pub async fn commands<R: Runtime>(
 /// GET /state — dump managed state.
 /// Placeholder — apps need to register serializable state with the plugin.
 pub async fn state<R: Runtime>(
-    State(_state): State<Arc<Mutex<BridgeState<R>>>>,
+    State(_state): State<Arc<BridgeState<R>>>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     Ok(Json(serde_json::json!({
         "note": "state inspection requires app integration — register state types with the plugin"
@@ -129,9 +127,8 @@ pub async fn state<R: Runtime>(
 
 /// GET /windows — list all open windows/webviews.
 pub async fn windows<R: Runtime>(
-    State(state): State<Arc<Mutex<BridgeState<R>>>>,
+    State(state): State<Arc<BridgeState<R>>>,
 ) -> Result<Json<Vec<WindowInfo>>, (StatusCode, String)> {
-    let state = state.lock().await;
     let webview_windows = state.app.webview_windows();
 
     let windows: Vec<WindowInfo> = webview_windows
@@ -150,9 +147,8 @@ pub async fn windows<R: Runtime>(
 
 /// GET /config — return the app's Tauri config.
 pub async fn config<R: Runtime>(
-    State(state): State<Arc<Mutex<BridgeState<R>>>>,
+    State(state): State<Arc<BridgeState<R>>>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let state = state.lock().await;
     let config = state.app.config();
     let json = serde_json::to_value(config)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
