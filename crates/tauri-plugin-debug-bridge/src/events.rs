@@ -1,8 +1,16 @@
 use std::sync::Arc;
 
-use axum::{extract::State, http::StatusCode, response::Json};
+use axum::{
+    extract::{
+        Query, State,
+        ws::{Message, WebSocket, WebSocketUpgrade},
+    },
+    http::StatusCode,
+    response::{Json, Response},
+};
 use serde::{Deserialize, Serialize};
-use tauri::{Emitter, Runtime};
+use tauri::{Emitter, Listener, Runtime};
+use tokio::sync::mpsc;
 
 use crate::BridgeState;
 
@@ -23,6 +31,11 @@ pub struct EventInfo {
     pub name: String,
 }
 
+#[derive(Deserialize)]
+pub struct ListenQuery {
+    pub name: String,
+}
+
 /// POST /events/emit — emit a Tauri event.
 pub async fn emit<R: Runtime>(
     State(state): State<Arc<BridgeState<R>>>,
@@ -40,10 +53,58 @@ pub async fn emit<R: Runtime>(
 pub async fn list<R: Runtime>(
     State(_state): State<Arc<BridgeState<R>>>,
 ) -> Result<Json<Vec<EventInfo>>, (StatusCode, String)> {
-    // TODO: Tauri doesn't expose a public event registry.
-    // We could track events emitted/listened through this plugin.
+    // Tauri doesn't expose a public event registry.
     Err((
         StatusCode::NOT_IMPLEMENTED,
-        "event listing not yet implemented".to_string(),
+        "event listing not yet implemented — Tauri has no public event registry".to_string(),
     ))
+}
+
+/// GET /events/listen?name=<event> — WebSocket stream of Tauri events.
+pub async fn listen<R: Runtime>(
+    State(state): State<Arc<BridgeState<R>>>,
+    Query(query): Query<ListenQuery>,
+    ws: WebSocketUpgrade,
+) -> Response {
+    let app = state.app.clone();
+    let event_name = query.name;
+    ws.on_upgrade(move |socket| handle_listen(socket, app, event_name))
+}
+
+async fn handle_listen<R: Runtime>(
+    mut socket: WebSocket,
+    app: tauri::AppHandle<R>,
+    event_name: String,
+) {
+    let (tx, mut rx) = mpsc::channel::<String>(64);
+
+    // Subscribe to the Tauri event.
+    let name_for_closure = event_name.clone();
+    let event_id = app.listen(&event_name, move |event| {
+        let msg = serde_json::json!({
+            "event": name_for_closure,
+            "payload": event.payload(),
+        });
+        let _ = tx.try_send(msg.to_string());
+    });
+
+    // Forward events to the WebSocket client until disconnect.
+    loop {
+        tokio::select! {
+            Some(msg) = rx.recv() => {
+                if socket.send(Message::Text(msg.into())).await.is_err() {
+                    break;
+                }
+            }
+            Some(Ok(msg)) = socket.recv() => {
+                if matches!(msg, Message::Close(_)) {
+                    break;
+                }
+            }
+            else => break,
+        }
+    }
+
+    // Clean up the Tauri event listener.
+    app.unlisten(event_id);
 }

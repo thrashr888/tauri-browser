@@ -14,7 +14,7 @@ use tauri::{
     AppHandle, Manager, Runtime,
     plugin::{Builder, TauriPlugin},
 };
-use tokio::sync::{Mutex, oneshot}; // Mutex used only for PendingResults internals
+use tokio::sync::{Mutex, broadcast, oneshot};
 
 mod backend;
 mod events;
@@ -43,6 +43,7 @@ pub struct EvalResult {
 pub struct BridgeState<R: Runtime> {
     pub app: AppHandle<R>,
     pub pending: PendingResults,
+    pub console_tx: broadcast::Sender<String>,
 }
 
 /// Health check response.
@@ -115,6 +116,22 @@ async fn eval_callback(
     Ok(())
 }
 
+/// Tauri command: receives JS console messages from the webview.
+/// Called by the injected console hook via `__TAURI_INTERNALS__.invoke`.
+#[tauri::command]
+async fn console_callback(
+    console_tx: tauri::State<'_, broadcast::Sender<String>>,
+    level: String,
+    message: String,
+) -> Result<(), String> {
+    let msg = serde_json::json!({
+        "level": level,
+        "message": message,
+    });
+    let _ = console_tx.send(msg.to_string());
+    Ok(())
+}
+
 /// Build the axum router with all debug bridge routes.
 fn build_router<R: Runtime>(state: Arc<BridgeState<R>>, token: String) -> Router {
     let auth_token = AuthToken(token);
@@ -136,6 +153,7 @@ fn build_router<R: Runtime>(state: Arc<BridgeState<R>>, token: String) -> Router
         // Events
         .route("/events/emit", post(events::emit::<R>))
         .route("/events/list", get(events::list::<R>))
+        .route("/events/listen", get(events::listen::<R>))
         // Logs (WebSocket)
         .route("/logs", get(logs::logs_ws::<R>))
         .route("/console", get(logs::console_ws::<R>))
@@ -167,11 +185,33 @@ async fn health() -> Json<HealthResponse> {
 /// #[cfg(feature = "debug")]
 /// app.plugin(tauri_plugin_debug_bridge::init());
 /// ```
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn auth_token_format() {
+        let token = generate_auth_token();
+        assert_eq!(token.len(), 32, "token should be 32 hex chars");
+        assert!(
+            token.chars().all(|c| c.is_ascii_hexdigit()),
+            "token should only contain hex chars"
+        );
+    }
+
+    #[test]
+    fn auth_tokens_are_unique() {
+        let t1 = generate_auth_token();
+        let t2 = generate_auth_token();
+        assert_ne!(t1, t2, "consecutive tokens should differ");
+    }
+}
+
 pub fn init<R: Runtime>() -> TauriPlugin<R, Option<Config>> {
     let pending: PendingResults = Arc::new(Mutex::new(HashMap::new()));
 
     Builder::<R, Option<Config>>::new("debug-bridge")
-        .invoke_handler(tauri::generate_handler![eval_callback])
+        .invoke_handler(tauri::generate_handler![eval_callback, console_callback])
         .setup(move |app, api| {
             let port = api.config().as_ref().and_then(|c| c.port).unwrap_or(9229);
 
@@ -180,12 +220,17 @@ pub fn init<R: Runtime>() -> TauriPlugin<R, Option<Config>> {
             println!("debug-bridge auth token: {token}");
             tracing::info!("debug-bridge auth token: {token}");
 
-            // Share pending results with both the Tauri command and axum handlers.
+            // Broadcast channel for JS console messages.
+            let (console_tx, _) = broadcast::channel(256);
+
+            // Share state with both Tauri commands and axum handlers.
             app.manage(pending.clone());
+            app.manage(console_tx.clone());
 
             let state = Arc::new(BridgeState {
                 app: app.clone(),
                 pending,
+                console_tx,
             });
 
             let router = build_router(state, token);

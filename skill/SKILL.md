@@ -28,6 +28,26 @@ app.plugin(tauri_plugin_debug_bridge::init());
 
 Run the app with `cargo run --features debug`.
 
+## Authentication
+
+The plugin generates a random auth token on each startup, printed to stdout:
+
+```
+debug-bridge auth token: a1b2c3d4e5f6...
+```
+
+Pass it to the CLI via `--token` or the `TAURI_BROWSER_TOKEN` env var:
+
+```bash
+export TAURI_BROWSER_TOKEN="a1b2c3d4e5f6..."
+tauri-browser connect
+
+# Or per-command:
+tauri-browser --token "a1b2c3d4e5f6..." connect
+```
+
+The `/health` endpoint does not require auth.
+
 ## Commands
 
 ### Connect and inspect
@@ -76,22 +96,20 @@ tauri-browser commands                   # List registered commands
 
 ```bash
 tauri-browser events emit "refresh" '{"force":true}'
-tauri-browser events listen "state-changed"  # Stream events
-tauri-browser events list
+tauri-browser events listen "state-changed"  # Stream events via WebSocket
 ```
 
-### Logs and console
+### Console
 
 ```bash
-tauri-browser logs                       # Stream Rust logs
-tauri-browser logs --level warn          # Filter by level
-tauri-browser console                    # Stream JS console output
-tauri-browser errors                     # Stream JS errors
+tauri-browser console                    # Stream JS console output (log/warn/error/info)
+tauri-browser errors                     # Stream JS errors (alias for console)
 ```
 
 ## Typical workflow
 
 ```bash
+export TAURI_BROWSER_TOKEN="<token from app startup>"
 tauri-browser connect
 tauri-browser snapshot -i
 # See: button "Refresh" [ref=@e1], input "Search" [ref=@e2]

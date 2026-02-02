@@ -436,6 +436,125 @@ pub fn uuid_v4() -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn expression_detection() {
+        // Simple expressions — should auto-return
+        assert!(looks_like_expression("document.title"));
+        assert!(looks_like_expression("1 + 2"));
+        assert!(looks_like_expression("foo()"));
+        assert!(looks_like_expression(
+            "document.querySelectorAll('li').length"
+        ));
+        assert!(looks_like_expression("await fetch('/api')"));
+
+        // Statements — should NOT auto-return
+        assert!(!looks_like_expression("return 42"));
+        assert!(!looks_like_expression("const x = 1"));
+        assert!(!looks_like_expression("let x = 1"));
+        assert!(!looks_like_expression("var x = 1"));
+        assert!(!looks_like_expression("if (true) { }"));
+        assert!(!looks_like_expression("for (;;) {}"));
+        assert!(!looks_like_expression("throw new Error()"));
+
+        // Multi-line — always treated as statements
+        assert!(!looks_like_expression("const x = 1;\nreturn x"));
+    }
+
+    #[test]
+    fn uuid_format() {
+        let id = uuid_v4();
+        assert_eq!(id.len(), 32, "should be 32 hex chars");
+        assert!(
+            id.chars().all(|c| c.is_ascii_hexdigit()),
+            "should only contain hex chars"
+        );
+    }
+
+    #[test]
+    fn uuid_uniqueness() {
+        let ids: Vec<String> = (0..100).map(|_| uuid_v4()).collect();
+        let unique: std::collections::HashSet<_> = ids.iter().collect();
+        assert_eq!(ids.len(), unique.len(), "100 IDs should all be unique");
+    }
+
+    #[test]
+    fn prune_removes_non_interactive_leaves() {
+        let tree = vec![SnapshotElement {
+            tag: "div".to_string(),
+            r#ref: None,
+            role: None,
+            text: Some("container".to_string()),
+            name: None,
+            value: None,
+            interactive: false,
+            children: vec![
+                SnapshotElement {
+                    tag: "button".to_string(),
+                    r#ref: Some("e1".to_string()),
+                    role: None,
+                    text: Some("Click me".to_string()),
+                    name: None,
+                    value: None,
+                    interactive: true,
+                    children: vec![],
+                },
+                SnapshotElement {
+                    tag: "span".to_string(),
+                    r#ref: None,
+                    role: None,
+                    text: Some("static text".to_string()),
+                    name: None,
+                    value: None,
+                    interactive: false,
+                    children: vec![],
+                },
+            ],
+        }];
+
+        let pruned = prune_non_interactive(tree);
+        assert_eq!(
+            pruned.len(),
+            1,
+            "container should remain (has interactive child)"
+        );
+        assert_eq!(pruned[0].children.len(), 1, "only the button should remain");
+        assert_eq!(pruned[0].children[0].tag, "button");
+    }
+
+    #[test]
+    fn prune_removes_empty_branches() {
+        let tree = vec![SnapshotElement {
+            tag: "div".to_string(),
+            r#ref: None,
+            role: None,
+            text: None,
+            name: None,
+            value: None,
+            interactive: false,
+            children: vec![SnapshotElement {
+                tag: "p".to_string(),
+                r#ref: None,
+                role: None,
+                text: Some("just text".to_string()),
+                name: None,
+                value: None,
+                interactive: false,
+                children: vec![],
+            }],
+        }];
+
+        let pruned = prune_non_interactive(tree);
+        assert!(
+            pruned.is_empty(),
+            "no interactive elements means empty result"
+        );
+    }
+}
+
 /// JavaScript that walks the DOM and builds a ref-based accessibility tree.
 /// Same pattern as agent-browser — assigns data-debug-ref attributes to
 /// interactive elements and returns a structured tree.
