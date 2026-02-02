@@ -148,79 +148,117 @@ pub async fn webview_eval<R: Runtime>(
     Ok(Json(result))
 }
 
-/// GET /screenshot — capture the webview as a base64-encoded PNG.
+/// GET /screenshot — capture the webview as a PNG image.
 pub async fn screenshot<R: Runtime>(
     State(state): State<Arc<Mutex<BridgeState<R>>>>,
 ) -> Result<Response, (StatusCode, String)> {
     let state = state.lock().await;
     let window = get_window(&state.app, None)?;
 
-    // Capture via canvas: render the document to a canvas and export as PNG data URL.
-    let js = r#"
-        return await new Promise((resolve, reject) => {
-            try {
-                const canvas = document.createElement('canvas');
-                const rect = document.documentElement.getBoundingClientRect();
-                canvas.width = window.innerWidth * window.devicePixelRatio;
-                canvas.height = window.innerHeight * window.devicePixelRatio;
-                const ctx = canvas.getContext('2d');
-                ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+    let png_data = native_screenshot(&window).await?;
 
-                // Use html2canvas-lite approach: serialize to SVG foreignObject
-                const data = new XMLSerializer().serializeToString(document.documentElement);
-                const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${window.innerWidth}" height="${window.innerHeight}">
-                    <foreignObject width="100%" height="100%">
-                        ${data}
-                    </foreignObject>
-                </svg>`;
-                const img = new Image();
-                const blob = new Blob([svg], {type: 'image/svg+xml;charset=utf-8'});
-                const url = URL.createObjectURL(blob);
-                img.onload = () => {
-                    ctx.drawImage(img, 0, 0);
-                    URL.revokeObjectURL(url);
-                    resolve(canvas.toDataURL('image/png'));
-                };
-                img.onerror = (e) => reject('Screenshot capture failed: ' + e);
-                img.src = url;
-            } catch(e) {
-                reject(e.toString());
+    Ok(axum::response::Response::builder()
+        .header("Content-Type", "image/png")
+        .body(axum::body::Body::from(png_data))
+        .unwrap())
+}
+
+/// macOS: Use WKWebView's native takeSnapshot API.
+#[cfg(target_os = "macos")]
+async fn native_screenshot<R: Runtime>(
+    window: &WebviewWindow<R>,
+) -> Result<Vec<u8>, (StatusCode, String)> {
+    let (tx, rx) = oneshot::channel::<Result<Vec<u8>, String>>();
+
+    window
+        .with_webview(move |platform_webview| {
+            use objc2_app_kit::NSImage;
+            use objc2_web_kit::WKWebView;
+
+            let ptr = platform_webview.inner();
+            // SAFETY: Tauri guarantees this is a valid WKWebView pointer.
+            let wkwebview: &WKWebView = unsafe { &*(ptr as *const WKWebView) };
+
+            // Use a Mutex to allow the closure to be called as Fn (block2 requires Fn).
+            // The completion handler is only called once by WKWebView.
+            let tx = std::sync::Mutex::new(Some(tx));
+            let block = block2::RcBlock::new(
+                move |image: *mut NSImage, error: *mut objc2_foundation::NSError| {
+                    let result = if !image.is_null() && error.is_null() {
+                        // SAFETY: WKWebView guarantees image is valid when error is nil.
+                        let image: &NSImage = unsafe { &*image };
+                        match image_to_png(image) {
+                            Some(data) => Ok(data),
+                            None => Err("failed to convert NSImage to PNG".to_string()),
+                        }
+                    } else if !error.is_null() {
+                        let error: &objc2_foundation::NSError = unsafe { &*error };
+                        Err(format!("WKWebView takeSnapshot failed: {error}"))
+                    } else {
+                        Err("takeSnapshot returned nil image".to_string())
+                    };
+                    if let Some(tx) = tx.lock().unwrap().take() {
+                        let _ = tx.send(result);
+                    }
+                },
+            );
+
+            unsafe {
+                wkwebview.takeSnapshotWithConfiguration_completionHandler(None, &block);
             }
-        });
-    "#;
+        })
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("with_webview failed: {e}"),
+            )
+        })?;
 
-    let result = eval_with_result(&state, &window, js).await?;
-
-    match result.value {
-        Some(serde_json::Value::String(data_url)) => {
-            // Strip the data:image/png;base64, prefix
-            let png_data = if let Some(b64) = data_url.strip_prefix("data:image/png;base64,") {
-                use base64::Engine;
-                base64::engine::general_purpose::STANDARD
-                    .decode(b64)
-                    .map_err(|e| {
-                        (
-                            StatusCode::INTERNAL_SERVER_ERROR,
-                            format!("base64 decode failed: {e}"),
-                        )
-                    })?
-            } else {
-                return Err((
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "unexpected screenshot format".to_string(),
-                ));
-            };
-
-            Ok(axum::response::Response::builder()
-                .header("Content-Type", "image/png")
-                .body(axum::body::Body::from(png_data))
-                .unwrap())
-        }
-        _ => Err((
+    match tokio::time::timeout(Duration::from_secs(10), rx).await {
+        Ok(Ok(Ok(data))) => Ok(data),
+        Ok(Ok(Err(e))) => Err((StatusCode::INTERNAL_SERVER_ERROR, e)),
+        Ok(Err(_)) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
-            format!("screenshot failed: {}", result.error.unwrap_or_default()),
+            "screenshot channel dropped".to_string(),
+        )),
+        Err(_) => Err((
+            StatusCode::GATEWAY_TIMEOUT,
+            "screenshot timed out after 10s".to_string(),
         )),
     }
+}
+
+/// Convert NSImage to PNG bytes.
+#[cfg(target_os = "macos")]
+fn image_to_png(image: &objc2_app_kit::NSImage) -> Option<Vec<u8>> {
+    use objc2_app_kit::NSBitmapImageRep;
+
+    unsafe {
+        // Get TIFF representation from NSImage
+        let tiff_data = image.TIFFRepresentation()?;
+
+        // Create NSBitmapImageRep from TIFF data
+        let rep = NSBitmapImageRep::imageRepWithData(&tiff_data)?;
+
+        // Convert to PNG
+        let png_data = rep.representationUsingType_properties(
+            objc2_app_kit::NSBitmapImageFileType::PNG,
+            &objc2_foundation::NSDictionary::new(),
+        )?;
+
+        Some(png_data.to_vec())
+    }
+}
+
+/// Non-macOS fallback: not yet implemented.
+#[cfg(not(target_os = "macos"))]
+async fn native_screenshot<R: Runtime>(
+    _window: &WebviewWindow<R>,
+) -> Result<Vec<u8>, (StatusCode, String)> {
+    Err((
+        StatusCode::NOT_IMPLEMENTED,
+        "screenshot not yet implemented on this platform".to_string(),
+    ))
 }
 
 /// GET /snapshot — dump the DOM as a ref-based accessibility tree.
