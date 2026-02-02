@@ -1,3 +1,8 @@
+---
+name: tauri-browser
+description: Automate and inspect Tauri apps via CLI. Ref-based element targeting, DOM snapshots, screenshots, JS execution, Tauri command invocation, and log streaming. Output designed for LLM consumption.
+---
+
 # tauri-browser
 
 Automate and inspect Tauri apps via the debug bridge plugin. Same UX as agent-browser — ref-based element targeting, output designed for LLM consumption.

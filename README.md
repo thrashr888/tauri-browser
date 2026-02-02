@@ -1,14 +1,28 @@
 # tauri-browser
 
-A CLI + Tauri plugin for automating and inspecting Tauri apps.
+A CLI + Tauri plugin for automating and inspecting Tauri apps. Ref-based element targeting with output designed for LLM consumption.
 
-## Install
+## Install the Skill
+
+Add the [Claude Code](https://docs.anthropic.com/en/docs/claude-code) skill to your project:
+
+```sh
+npx skills add thrashr888/tauri-browser
+```
+
+Or install globally:
+
+```sh
+npx skills add thrashr888/tauri-browser -g
+```
+
+## Install the CLI
 
 ```sh
 cargo install tauri-browser
 ```
 
-## Usage
+## Setup
 
 Add the plugin to your Tauri app behind a feature flag:
 
@@ -39,15 +53,19 @@ Run your app with the feature enabled:
 cargo tauri dev --features debug-bridge
 ```
 
-Then use the CLI:
+## Usage
 
 ```sh
-tauri-browser connect          # verify connection
-tauri-browser snapshot -i      # interactive DOM snapshot
-tauri-browser run-js "document.title"
-tauri-browser click "@e3"      # click by ref from snapshot
-tauri-browser windows          # list app windows
-tauri-browser screenshot out.png
+tauri-browser connect                        # verify connection
+tauri-browser snapshot -i                    # interactive elements with @refs
+tauri-browser click "@e3"                    # click by ref
+tauri-browser fill "@e2" "user@example.com"  # fill input by ref
+tauri-browser run-js "document.title"        # execute JS
+tauri-browser screenshot out.png             # capture screenshot
+tauri-browser windows                        # list app windows
+tauri-browser invoke get_data '{"id":1}'     # call Tauri commands
+tauri-browser events emit "refresh" '{}'     # emit events
+tauri-browser logs --level warn              # stream logs
 ```
 
 ## Architecture
