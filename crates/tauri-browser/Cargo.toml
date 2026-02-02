@@ -5,6 +5,10 @@ description = "CLI for automating and inspecting Tauri apps via debug bridge"
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
+repository.workspace = true
+readme = "../../README.md"
+keywords = ["tauri", "automation", "testing", "debug", "cli"]
+categories = ["development-tools", "command-line-utilities"]
 
 [[bin]]
 name = "tauri-browser"

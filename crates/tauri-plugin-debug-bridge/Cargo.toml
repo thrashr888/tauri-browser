@@ -5,6 +5,10 @@ description = "A dev-only Tauri plugin exposing HTTP+WS debug server for automat
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
+repository.workspace = true
+readme = "../../README.md"
+keywords = ["tauri", "plugin", "debug", "automation", "testing"]
+categories = ["development-tools", "gui"]
 links = "tauri-plugin-debug-bridge"
 
 [dependencies]

@@ -1,40 +1,59 @@
-# Agent Instructions
+# CLAUDE.md
 
-This project uses **bd** (beads) for issue tracking. Run `bd onboard` to get started.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Quick Reference
+## Project Overview
+
+**tauri-browser** — A CLI + Tauri plugin for automating and inspecting Tauri apps, designed for Claude Code agent integration. Enables remote debugging, DOM interaction, JavaScript execution, and state inspection.
+
+Two crates in a Cargo workspace:
+- `tauri-plugin-debug-bridge` — Tauri plugin that starts an HTTP+WS server (default port 9229)
+- `tauri-browser` — CLI that talks to the plugin, same UX as agent-browser
+
+## Build Commands
 
 ```bash
-bd ready              # Find available work
-bd show <id>          # View issue details
-bd update <id> --status in_progress  # Claim work
-bd close <id>         # Complete work
-bd sync               # Sync with git
+# Check everything compiles
+cargo check
+
+# Quality gates (run before commits)
+cargo fmt -- --check && cargo clippy -- -D warnings
+
+# Build release
+cargo build --release
+
+# Install CLI locally
+cargo install --path crates/tauri-browser
 ```
 
-## Landing the Plane (Session Completion)
+## Architecture
 
-**When ending a work session**, you MUST complete ALL steps below. Work is NOT complete until `git push` succeeds.
+```
+crates/
+├── tauri-plugin-debug-bridge/   # Tauri plugin (lib crate)
+│   └── src/
+│       ├── lib.rs               # Plugin init, axum router, IPC result channel
+│       ├── webview.rs           # JS execution, screenshot, snapshot, click, fill
+│       ├── backend.rs           # invoke proxy, windows, config
+│       ├── events.rs            # event emit/list
+│       └── logs.rs              # WebSocket log/console streaming
+└── tauri-browser/               # CLI (bin crate)
+    └── src/
+        ├── main.rs              # Clap arg parsing, command dispatch
+        ├── client.rs            # HTTP/WS client to debug bridge
+        └── output.rs            # Text/JSON output formatting
+```
 
-**MANDATORY WORKFLOW:**
+Key pattern: The plugin uses an IPC result channel — injected JS calls `plugin:debug-bridge|eval_callback` to return results from webview operations. This is necessary because Tauri's `WebviewWindow` API is fire-and-forget.
 
-1. **File issues for remaining work** - Create issues for anything that needs follow-up
-2. **Run quality gates** (if code changed) - Tests, linters, builds
-3. **Update issue status** - Close finished work, update in-progress items
-4. **PUSH TO REMOTE** - This is MANDATORY:
-   ```bash
-   git pull --rebase
-   bd sync
-   git push
-   git status  # MUST show "up to date with origin"
-   ```
-5. **Clean up** - Clear stashes, prune remote branches
-6. **Verify** - All changes committed AND pushed
-7. **Hand off** - Provide context for next session
+## Beads Issue Tracking
 
-**CRITICAL RULES:**
-- Work is NOT complete until `git push` succeeds
-- NEVER stop before pushing - that leaves work stranded locally
-- NEVER say "ready to push when you are" - YOU must push
-- If push fails, resolve and retry until it succeeds
+This repository uses `bd` (beads) for issue tracking.
 
+```bash
+bd ready                    # Show unblocked work
+bd list --status=open       # All open issues
+bd update <id> --status=in_progress
+bd close <id>
+bd sync                     # Sync at session end
+```

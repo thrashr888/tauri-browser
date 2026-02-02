@@ -6,6 +6,7 @@ resolver = "2"
 edition = "2024"
 license = "MIT"
 authors = ["Paul Thrasher"]
+repository = "https://github.com/thrashr888/tauri-browser"
 
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }
