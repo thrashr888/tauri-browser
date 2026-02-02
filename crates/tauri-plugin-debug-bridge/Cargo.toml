@@ -5,6 +5,7 @@ description = "A dev-only Tauri plugin exposing HTTP+WS debug server for automat
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
+links = "tauri-plugin-debug-bridge"
 
 [dependencies]
 tauri = { version = "2", features = [] }
@@ -19,4 +20,4 @@ tracing-subscriber.workspace = true
 base64 = "0.22"
 
 [build-dependencies]
-tauri-build = { version = "2", features = [] }
+tauri-plugin = { version = "2", features = ["build"] }

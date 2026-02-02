@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-eval-callback"
+description = "Enables the eval_callback command without any pre-configured scope."
+commands.allow = ["eval_callback"]
+
+[[permission]]
+identifier = "deny-eval-callback"
+description = "Denies the eval_callback command without any pre-configured scope."
+commands.deny = ["eval_callback"]

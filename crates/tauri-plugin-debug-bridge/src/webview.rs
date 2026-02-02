@@ -35,7 +35,8 @@ pub struct FillRequest {
 #[derive(Serialize, Deserialize)]
 pub struct SnapshotElement {
     pub tag: String,
-    pub r#ref: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub r#ref: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub role: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -45,7 +46,7 @@ pub struct SnapshotElement {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub value: Option<String>,
     pub interactive: bool,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub children: Vec<SnapshotElement>,
 }
 
@@ -81,22 +82,35 @@ async fn eval_with_result<R: Runtime>(
     }
 
     // Wrap the user's JS so it evaluates and calls back with the result.
+    // Use __TAURI_INTERNALS__ which is always available in the Tauri webview,
+    // unlike window.__TAURI__ which requires the @tauri-apps/api import.
+    //
+    // For single-line expressions (like `document.title`), auto-add `return`.
+    // For multi-line code or code with statement keywords, pass through as-is
+    // (callers must use `return` explicitly).
+    // Note: we avoid eval() since webview CSP may not include 'unsafe-eval'.
+    let code_body = if looks_like_expression(js_code) {
+        format!("return ({js_code})")
+    } else {
+        js_code.to_string()
+    };
+
     let wrapped = format!(
         r#"(async () => {{
             try {{
                 const __result = await (async () => {{ {code} }})();
-                await window.__TAURI__.core.invoke(
+                await window.__TAURI_INTERNALS__.invoke(
                     'plugin:debug-bridge|eval_callback',
                     {{ id: '{id}', success: true, value: __result, error: null }}
                 );
             }} catch(__e) {{
-                await window.__TAURI__.core.invoke(
+                await window.__TAURI_INTERNALS__.invoke(
                     'plugin:debug-bridge|eval_callback',
                     {{ id: '{id}', success: false, value: null, error: __e.toString() }}
                 );
             }}
         }})()"#,
-        code = js_code,
+        code = code_body,
         id = id,
     );
 
@@ -323,6 +337,37 @@ pub async fn fill<R: Runtime>(
     Ok(Json(result))
 }
 
+/// Detect if JS code is a simple expression (no statements).
+/// Single-line code without statement keywords gets auto-wrapped with `return`.
+fn looks_like_expression(code: &str) -> bool {
+    let trimmed = code.trim();
+    if trimmed.contains('\n') {
+        return false;
+    }
+    let keywords = [
+        "return ",
+        "return;",
+        "const ",
+        "let ",
+        "var ",
+        "if ",
+        "if(",
+        "for ",
+        "for(",
+        "while ",
+        "while(",
+        "switch ",
+        "switch(",
+        "throw ",
+        "try ",
+        "try{",
+        "class ",
+        "function ",
+        "async function",
+    ];
+    !keywords.iter().any(|kw| trimmed.starts_with(kw))
+}
+
 /// Simple UUID v4 generator (no external dep needed).
 pub fn uuid_v4() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -362,6 +407,7 @@ const SNAPSHOT_JS: &str = r#"
         }
 
         function isVisible(el) {
+            if (el === document.body || el === document.documentElement) return true;
             const style = window.getComputedStyle(el);
             return style.display !== 'none' &&
                    style.visibility !== 'hidden' &&

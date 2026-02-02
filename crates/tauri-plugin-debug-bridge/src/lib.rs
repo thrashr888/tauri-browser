@@ -113,13 +113,13 @@ async fn health() -> Json<HealthResponse> {
 /// #[cfg(feature = "debug")]
 /// app.plugin(tauri_plugin_debug_bridge::init());
 /// ```
-pub fn init<R: Runtime>() -> TauriPlugin<R, Config> {
+pub fn init<R: Runtime>() -> TauriPlugin<R, Option<Config>> {
     let pending: PendingResults = Arc::new(Mutex::new(HashMap::new()));
 
-    Builder::<R, Config>::new("debug-bridge")
+    Builder::<R, Option<Config>>::new("debug-bridge")
         .invoke_handler(tauri::generate_handler![eval_callback])
         .setup(move |app, api| {
-            let port = api.config().port.unwrap_or(9229);
+            let port = api.config().as_ref().and_then(|c| c.port).unwrap_or(9229);
 
             // Share pending results with both the Tauri command and axum handlers.
             app.manage(pending.clone());
