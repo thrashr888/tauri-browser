@@ -46,6 +46,10 @@ crates/
 
 Key pattern: The plugin uses an IPC result channel — injected JS calls `plugin:debug-bridge|eval_callback` to return results from webview operations. This is necessary because Tauri's `WebviewWindow` API is fire-and-forget.
 
+## Publishing
+
+Both crates are published to crates.io via trusted publishing (GitHub Actions OIDC). Pushing to `main` auto-publishes if the version in `Cargo.toml` changed. No manual `cargo publish` needed — just bump the version and push.
+
 ## Beads Issue Tracking
 
 This repository uses `bd` (beads) for issue tracking.
