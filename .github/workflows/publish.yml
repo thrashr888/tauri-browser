@@ -1,0 +1,29 @@
+name: Publish to crates.io
+
+on:
+  push:
+    tags: ["plugin-v*"]
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  publish:
+    name: Publish tauri-plugin-debug-bridge
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install system deps (for tauri/webkit2gtk)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: Publish to crates.io (Trusted Publishing)
+        run: cargo publish -p tauri-plugin-debug-bridge
