@@ -102,13 +102,18 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
 
       - name: Authenticate with crates.io
+        id: crates-io-auth
         uses: rust-lang/crates-io-auth-action@v1
 
       - name: Publish plugin crate
         run: cargo publish -p tauri-plugin-debug-bridge --allow-dirty
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.crates-io-auth.outputs.token }}
 
       - name: Wait for crates.io index
         run: sleep 30
 
       - name: Publish CLI crate
         run: cargo publish -p tauri-browser --allow-dirty
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.crates-io-auth.outputs.token }}
