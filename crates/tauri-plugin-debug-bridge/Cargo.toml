@@ -1,6 +1,6 @@
 [package]
 name = "tauri-plugin-debug-bridge"
-version = "0.2.0"
+version = "0.2.1"
 description = "A dev-only Tauri plugin exposing HTTP+WS debug server for automation"
 edition.workspace = true
 license.workspace = true
