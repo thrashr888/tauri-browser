@@ -1,6 +1,6 @@
 [package]
 name = "tauri-browser"
-version = "0.2.3"
+version = "0.2.4"
 description = "CLI for automating and inspecting Tauri apps via debug bridge"
 edition.workspace = true
 license.workspace = true
@@ -16,8 +16,8 @@ path = "src/main.rs"
 
 [dependencies]
 clap = { version = "4", features = ["derive", "env"] }
-reqwest = { version = "0.12", features = ["json"] }
-tokio-tungstenite = { version = "0.26", features = ["native-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+tokio-tungstenite = { version = "0.26", features = ["rustls-tls-webpki-roots"] }
 futures-util = "0.3"
 serde.workspace = true
 serde_json.workspace = true
