@@ -16,7 +16,6 @@ jobs:
   publish:
     name: Publish tauri-plugin-debug-bridge
     runs-on: ubuntu-latest
-    environment: crates-io
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -29,10 +28,23 @@ jobs:
       - name: Get OIDC token and publish
         run: |
           # Get OIDC token from GitHub
-          OIDC_TOKEN=$(curl -sLS "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=crates.io" -H "User-Agent: actions/oidc-client" -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" | jq -r '.value')
+          OIDC_TOKEN=$(curl -sLS "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=crates.io" \
+            -H "User-Agent: actions/oidc-client" \
+            -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            | jq -r '.value')
 
           # Exchange for crates.io token
-          CRATES_TOKEN=$(curl -sLS "https://crates.io/api/v1/trusted_publishing/tokens" -H "Content-Type: application/json" -d "{\"oidc_token\": \"$OIDC_TOKEN\"}" | jq -r '.token')
+          RESPONSE=$(curl -sLS "https://crates.io/api/v1/trusted_publishing/tokens" \
+            -H "Content-Type: application/json" \
+            -d "{\"oidc_token\": \"$OIDC_TOKEN\"}")
+
+          echo "Token exchange response: $RESPONSE"
+          CRATES_TOKEN=$(echo "$RESPONSE" | jq -r '.token // empty')
+
+          if [ -z "$CRATES_TOKEN" ]; then
+            echo "Failed to get crates.io token. Response: $RESPONSE"
+            exit 1
+          fi
 
           # Publish with the token
           CARGO_REGISTRY_TOKEN="$CRATES_TOKEN" cargo publish -p tauri-plugin-debug-bridge
