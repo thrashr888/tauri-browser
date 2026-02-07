@@ -88,7 +88,7 @@ jobs:
   publish:
     name: Publish to crates.io
     runs-on: ubuntu-latest
-    environment: crates-io
+    environment: release
     permissions:
       contents: read
       id-token: write
