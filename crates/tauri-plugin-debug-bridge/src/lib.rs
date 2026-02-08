@@ -61,6 +61,27 @@ fn generate_auth_token() -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
+/// Well-known directory for discovery files.
+const DISCOVERY_DIR: &str = "/tmp/tauri-debug-bridge";
+
+/// Write a discovery file so the CLI can auto-find this app's port and token.
+fn write_discovery_file(identifier: &str, port: u16, token: &str) -> std::io::Result<()> {
+    let dir = std::path::Path::new(DISCOVERY_DIR);
+    std::fs::create_dir_all(dir)?;
+
+    let file_path = dir.join(format!("{identifier}.json"));
+    let content = serde_json::json!({ "port": port, "token": token });
+    std::fs::write(&file_path, content.to_string())?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&file_path, std::fs::Permissions::from_mode(0o600))?;
+    }
+
+    Ok(())
+}
+
 /// Middleware that checks the `X-Debug-Bridge-Token` header on every request
 /// except `/health`.
 async fn auth_middleware(
@@ -236,11 +257,11 @@ pub fn init<R: Runtime>() -> TauriPlugin<R, Option<Config>> {
                 console_tx,
             });
 
-            let router = build_router(state, token);
+            let router = build_router(state, token.clone());
+            let identifier = app.config().identifier.clone();
 
             tauri::async_runtime::spawn(async move {
                 let addr = format!("127.0.0.1:{port}");
-                tracing::info!("debug-bridge listening on http://{addr}");
                 let listener = match tokio::net::TcpListener::bind(&addr).await {
                     Ok(l) => l,
                     Err(e) => {
@@ -248,6 +269,18 @@ pub fn init<R: Runtime>() -> TauriPlugin<R, Option<Config>> {
                         return;
                     }
                 };
+
+                let actual_port = listener.local_addr().unwrap().port();
+                tracing::info!("debug-bridge listening on http://127.0.0.1:{actual_port}");
+
+                // Write discovery file after binding so we have the real port
+                // (important when configured port is 0 = OS-assigned).
+                if let Err(e) = write_discovery_file(&identifier, actual_port, &token) {
+                    tracing::warn!("failed to write discovery file: {e}");
+                } else {
+                    tracing::info!("debug-bridge discovery: {DISCOVERY_DIR}/{identifier}.json");
+                }
+
                 if let Err(e) = axum::serve(listener, router).await {
                     tracing::error!("debug-bridge server error: {e}");
                 }

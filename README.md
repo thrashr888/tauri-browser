@@ -55,13 +55,20 @@ cargo tauri dev --features debug-bridge
 
 ## Authentication
 
-The plugin generates a random auth token on each startup, printed to stdout:
+The plugin generates a random auth token on each startup and writes a discovery file to `/tmp/tauri-debug-bridge/<app-identifier>.json`. The CLI reads this automatically — no token needed in your commands:
 
-```
-debug-bridge auth token: a1b2c3d4e5f6...
+```sh
+tauri-browser connect              # auto-discovers token
+tauri-browser snapshot -i          # just works
 ```
 
-Pass it to the CLI:
+When multiple Tauri apps are running, specify which one:
+
+```sh
+tauri-browser --app com.example.myapp connect
+```
+
+You can still pass the token explicitly if needed:
 
 ```sh
 export TAURI_BROWSER_TOKEN="a1b2c3d4e5f6..."
@@ -102,7 +109,7 @@ The CLI talks to it. No app code changes needed beyond plugin registration.
 ## Troubleshooting
 
 **401 Unauthorized on all requests**
-Set `TAURI_BROWSER_TOKEN` to the token printed at app startup. The token changes every time the app restarts.
+The CLI auto-discovers the token from `/tmp/tauri-debug-bridge/`. If that fails, set `TAURI_BROWSER_TOKEN` to the token printed at app startup. The token changes every restart.
 
 **Eval/invoke times out after 10-30s**
 The `debug-bridge:default` permission must be in your `capabilities/default.json`. Without it, Tauri silently blocks the `eval_callback` command and results never return.
@@ -111,18 +118,18 @@ The `debug-bridge:default` permission must be in your `capabilities/default.json
 Make sure you're on plugin version 0.2.5+ which includes `console_callback` in the default permission set. Earlier versions only permitted `eval_callback`.
 
 **Port already in use**
-Configure a different port in `tauri.conf.json`:
+Configure a different port (or `0` for auto-assign) in `tauri.conf.json`:
 ```json
 {
   "plugins": {
     "debug-bridge": {
-      "port": 9230
+      "port": 0
     }
   }
 }
 ```
 
-Then connect with `tauri-browser -p 9230 connect`.
+The CLI discovers the actual port from the discovery file automatically.
 
 ## License
 

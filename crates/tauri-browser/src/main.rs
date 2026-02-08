@@ -1,8 +1,12 @@
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
+use std::path::Path;
 
 mod client;
 mod output;
+
+/// Well-known directory where the plugin writes discovery files.
+const DISCOVERY_DIR: &str = "/tmp/tauri-debug-bridge";
 
 #[derive(Parser)]
 #[command(
@@ -11,11 +15,15 @@ mod output;
     about = "CLI for automating Tauri apps"
 )]
 struct Cli {
-    /// Debug bridge port (default: 9229)
-    #[arg(short, long, default_value_t = 9229, global = true)]
-    port: u16,
+    /// Debug bridge port (overrides discovery)
+    #[arg(short, long, global = true)]
+    port: Option<u16>,
 
-    /// Auth token (printed by the app on startup)
+    /// App identifier to connect to (reads from discovery file)
+    #[arg(short = 'a', long, global = true)]
+    app: Option<String>,
+
+    /// Auth token (overrides discovery)
     #[arg(short = 't', long, global = true, env = "TAURI_BROWSER_TOKEN")]
     token: Option<String>,
 
@@ -120,6 +128,62 @@ enum EventAction {
     List,
 }
 
+/// Read port and token from a discovery file written by the plugin.
+fn read_discovery_file(path: &Path) -> Option<(u16, String)> {
+    let content = std::fs::read_to_string(path).ok()?;
+    let json: serde_json::Value = serde_json::from_str(&content).ok()?;
+    let port = json["port"].as_u64()? as u16;
+    let token = json["token"].as_str()?.to_string();
+    Some((port, token))
+}
+
+/// Resolve connection parameters from CLI flags or discovery files.
+fn resolve_connection(cli: &Cli) -> Result<(u16, Option<String>)> {
+    // Explicit token provided — use manual mode.
+    if cli.token.is_some() {
+        return Ok((cli.port.unwrap_or(9229), cli.token.clone()));
+    }
+
+    // Try discovery from /tmp/tauri-debug-bridge/.
+    let dir = Path::new(DISCOVERY_DIR);
+
+    if let Some(app_id) = &cli.app {
+        // Target a specific app.
+        let path = dir.join(format!("{app_id}.json"));
+        if let Some((port, token)) = read_discovery_file(&path) {
+            let port = cli.port.unwrap_or(port);
+            return Ok((port, Some(token)));
+        }
+        bail!("no discovery file for app '{app_id}' at {}", path.display());
+    }
+
+    // No --app: scan directory for available apps.
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        let files: Vec<_> = entries
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().extension().map(|x| x == "json").unwrap_or(false))
+            .collect();
+
+        if files.len() == 1 {
+            if let Some((port, token)) = read_discovery_file(&files[0].path()) {
+                let port = cli.port.unwrap_or(port);
+                return Ok((port, Some(token)));
+            }
+        } else if files.len() > 1 {
+            eprintln!("Multiple apps detected. Use --app to specify:");
+            for f in &files {
+                if let Some(name) = f.path().file_stem() {
+                    eprintln!("  --app {}", name.to_string_lossy());
+                }
+            }
+            bail!("multiple apps running — specify --app <identifier>");
+        }
+    }
+
+    // No discovery files found — fall back to defaults.
+    Ok((cli.port.unwrap_or(9229), None))
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
@@ -130,7 +194,8 @@ async fn main() -> Result<()> {
         .init();
 
     let cli = Cli::parse();
-    let client = client::BridgeClient::new(cli.port, cli.token.as_deref());
+    let (port, token) = resolve_connection(&cli)?;
+    let client = client::BridgeClient::new(port, token.as_deref());
 
     match cli.command {
         Command::Connect => {

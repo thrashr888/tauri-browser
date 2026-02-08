@@ -32,19 +32,22 @@ Run the app with `cargo tauri dev --features debug-bridge`.
 
 ## Authentication
 
-The plugin generates a random auth token on each startup, printed to stdout:
-
-```
-debug-bridge auth token: a1b2c3d4e5f6...
-```
-
-Pass it to the CLI via `--token` or the `TAURI_BROWSER_TOKEN` env var:
+The plugin writes a discovery file on startup to `/tmp/tauri-debug-bridge/<app-identifier>.json` containing the port and auth token. The CLI reads this automatically:
 
 ```bash
-export TAURI_BROWSER_TOKEN="a1b2c3d4e5f6..."
-tauri-browser connect
+tauri-browser connect               # auto-discovers token and port
+tauri-browser snapshot -i           # just works, no token needed
+```
 
-# Or per-command:
+When multiple Tauri apps are running, specify which one:
+
+```bash
+tauri-browser --app com.example.myapp connect
+```
+
+You can still pass the token explicitly as an override:
+
+```bash
 tauri-browser --token "a1b2c3d4e5f6..." connect
 ```
 
@@ -111,8 +114,7 @@ tauri-browser errors                     # Stream JS errors (alias for console)
 ## Typical workflow
 
 ```bash
-export TAURI_BROWSER_TOKEN="<token from app startup>"
-tauri-browser connect
+tauri-browser connect                    # Auto-discovers token
 tauri-browser snapshot -i
 # See: button "Refresh" [ref=@e1], input "Search" [ref=@e2]
 tauri-browser fill @e2 "AAPL"
