@@ -1,6 +1,6 @@
 [package]
 name = "tauri-browser"
-version = "0.2.4"
+version = "0.3.0"
 description = "CLI for automating and inspecting Tauri apps via debug bridge"
 edition.workspace = true
 license.workspace = true
