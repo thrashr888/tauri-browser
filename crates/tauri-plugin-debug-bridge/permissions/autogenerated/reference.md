@@ -5,6 +5,7 @@ Default permissions for the debug bridge plugin. Allows the eval callback comman
 #### This default permission set includes the following:
 
 - `allow-eval-callback`
+- `allow-console-callback`
 
 ## Permission Table
 
@@ -14,6 +15,32 @@ Default permissions for the debug bridge plugin. Allows the eval callback comman
 <th>Description</th>
 </tr>
 
+
+<tr>
+<td>
+
+`debug-bridge:allow-console-callback`
+
+</td>
+<td>
+
+Enables the console_callback command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`debug-bridge:deny-console-callback`
+
+</td>
+<td>
+
+Denies the console_callback command without any pre-configured scope.
+
+</td>
+</tr>
 
 <tr>
 <td>

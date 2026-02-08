@@ -46,6 +46,25 @@ crates/
 
 Key pattern: The plugin uses an IPC result channel — injected JS calls `plugin:debug-bridge|eval_callback` to return results from webview operations. This is necessary because Tauri's `WebviewWindow` API is fire-and-forget.
 
+## Important: Axum Layer Ordering
+
+In axum/tower, the LAST `.layer()` call is the outermost middleware (runs first). This means:
+```rust
+Router::new()
+    .layer(middleware::from_fn(auth_middleware))  // inner: reads extensions
+    .layer(axum::Extension(auth_token))          // outer: sets extensions first
+```
+If the order is swapped, `auth_middleware` runs before the Extension is set and auth breaks silently.
+
+## Plugin Permissions
+
+The plugin registers two Tauri commands: `eval_callback` and `console_callback`. Both must be listed in:
+1. `build.rs` `COMMANDS` array — generates the permission definitions
+2. `permissions/default.toml` — includes them in the default permission set
+3. The consuming app's `capabilities/default.json` — must include `"debug-bridge:default"`
+
+If any of these are missing, Tauri silently blocks the command — no error, just a timeout. This is the #1 cause of "eval timed out" bugs.
+
 ## Publishing
 
 Both crates are published to crates.io via trusted publishing (GitHub Actions OIDC). Pushing to `main` auto-publishes if the version in `Cargo.toml` changed. No manual `cargo publish` needed — just bump the version and push.

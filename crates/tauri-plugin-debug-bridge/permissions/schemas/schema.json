@@ -295,6 +295,18 @@
       "type": "string",
       "oneOf": [
         {
+          "description": "Enables the console_callback command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-console-callback",
+          "markdownDescription": "Enables the console_callback command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the console_callback command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-console-callback",
+          "markdownDescription": "Denies the console_callback command without any pre-configured scope."
+        },
+        {
           "description": "Enables the eval_callback command without any pre-configured scope.",
           "type": "string",
           "const": "allow-eval-callback",
@@ -307,10 +319,10 @@
           "markdownDescription": "Denies the eval_callback command without any pre-configured scope."
         },
         {
-          "description": "Default permissions for the debug bridge plugin. Allows the eval callback command.\n#### This default permission set includes:\n\n- `allow-eval-callback`",
+          "description": "Default permissions for the debug bridge plugin. Allows the eval callback command.\n#### This default permission set includes:\n\n- `allow-eval-callback`\n- `allow-console-callback`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Default permissions for the debug bridge plugin. Allows the eval callback command.\n#### This default permission set includes:\n\n- `allow-eval-callback`"
+          "markdownDescription": "Default permissions for the debug bridge plugin. Allows the eval callback command.\n#### This default permission set includes:\n\n- `allow-eval-callback`\n- `allow-console-callback`"
         }
       ]
     }

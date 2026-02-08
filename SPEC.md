@@ -91,20 +91,25 @@ On macOS, WKWebView doesn't expose CDP. The only way to run JS or screenshot the
 **Why HTTP+WS, not stdin/stdout?**
 Multiple CLI invocations can share one connection. WebSocket enables streaming (console logs, events). HTTP makes individual commands simple.
 
+**Authentication:**
+The plugin generates a random 32-char hex token on each startup, printed to stdout as `debug-bridge auth token: <token>`. All HTTP requests except `/health` must include `X-Debug-Bridge-Token: <token>`. The CLI reads the token from `TAURI_BROWSER_TOKEN` env var or `--token` flag.
+
 **Dev-only by default:**
 ```toml
 # App's Cargo.toml
 [dependencies]
-tauri-plugin-debug-bridge = { version = "0.1", optional = true }
+tauri-plugin-debug-bridge = { version = "0.2", optional = true }
 
 [features]
-debug = ["tauri-plugin-debug-bridge"]
+debug-bridge = ["tauri-plugin-debug-bridge"]
 ```
 ```rust
 // lib.rs
-#[cfg(feature = "debug")]
-app.plugin(tauri_plugin_debug_bridge::init(9229));
+#[cfg(feature = "debug-bridge")]
+app.plugin(tauri_plugin_debug_bridge::init());
 ```
+
+**Required capability:** Add `"debug-bridge:default"` to `capabilities/default.json`. Without it, `eval_callback` and `console_callback` are silently blocked by Tauri's permission system — eval/invoke calls will time out.
 
 **Accessibility tree via JS injection:**
 The snapshot command injects a script that walks the DOM and builds the same ref-based tree that agent-browser uses. This means the skill instructions are nearly identical — if you know agent-browser, you know tauri-browser.

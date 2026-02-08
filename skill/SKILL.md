@@ -9,24 +9,26 @@ Automate and inspect Tauri apps via the debug bridge plugin. Same UX as agent-br
 
 ## Prerequisites
 
-The target Tauri app must include `tauri-plugin-debug-bridge` with the `debug` feature enabled:
+The target Tauri app must include `tauri-plugin-debug-bridge` behind a feature flag:
 
 ```toml
 # App's Cargo.toml
 [dependencies]
-tauri-plugin-debug-bridge = { version = "0.1", optional = true }
+tauri-plugin-debug-bridge = { version = "0.2", optional = true }
 
 [features]
-debug = ["tauri-plugin-debug-bridge"]
+debug-bridge = ["tauri-plugin-debug-bridge"]
 ```
 
 ```rust
 // App's lib.rs
-#[cfg(feature = "debug")]
+#[cfg(feature = "debug-bridge")]
 app.plugin(tauri_plugin_debug_bridge::init());
 ```
 
-Run the app with `cargo run --features debug`.
+Add `"debug-bridge:default"` to your `capabilities/default.json` permissions array.
+
+Run the app with `cargo tauri dev --features debug-bridge`.
 
 ## Authentication
 
