@@ -14,7 +14,7 @@ The target Tauri app must include `tauri-plugin-debug-bridge` behind a feature f
 ```toml
 # App's Cargo.toml
 [dependencies]
-tauri-plugin-debug-bridge = { version = "0.2", optional = true }
+tauri-plugin-debug-bridge = { version = "0.4", optional = true }
 
 [features]
 debug-bridge = ["tauri-plugin-debug-bridge"]
@@ -26,7 +26,18 @@ debug-bridge = ["tauri-plugin-debug-bridge"]
 app.plugin(tauri_plugin_debug_bridge::init());
 ```
 
-Add `"debug-bridge:default"` to your `capabilities/default.json` permissions array.
+Add the capability permission. Create `capabilities/debug-bridge.json` (separate file avoids overwrite if `default.json` is generated):
+
+```json
+{
+  "identifier": "debug-bridge",
+  "description": "Debug bridge for tauri-browser automation",
+  "windows": ["main"],
+  "permissions": ["debug-bridge:default"]
+}
+```
+
+Without this, eval/invoke will silently time out.
 
 Run the app with `cargo tauri dev --features debug-bridge`.
 

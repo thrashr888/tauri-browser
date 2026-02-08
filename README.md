@@ -29,7 +29,7 @@ Add the plugin to your Tauri app behind a feature flag:
 ```toml
 # Cargo.toml
 [dependencies]
-tauri-plugin-debug-bridge = { version = "0.2", optional = true }
+tauri-plugin-debug-bridge = { version = "0.4", optional = true }
 
 [features]
 debug-bridge = ["tauri-plugin-debug-bridge"]
@@ -41,10 +41,16 @@ debug-bridge = ["tauri-plugin-debug-bridge"]
 app.plugin(tauri_plugin_debug_bridge::init());
 ```
 
-Add the permission to `capabilities/default.json`:
+Add the permission to your capabilities. You can add `"debug-bridge:default"` to `capabilities/default.json`, or create a separate file to avoid overwrite issues if your build process regenerates `default.json`:
 
 ```json
-"debug-bridge:default"
+// capabilities/debug-bridge.json
+{
+  "identifier": "debug-bridge",
+  "description": "Debug bridge for tauri-browser automation",
+  "windows": ["main"],
+  "permissions": ["debug-bridge:default"]
+}
 ```
 
 Run your app with the feature enabled:
