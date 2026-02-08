@@ -3599,7 +3599,7 @@ dependencies = [
 
 [[package]]
 name = "tauri-browser"
-version = "0.2.4"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -3695,7 +3695,7 @@ dependencies = [
 
 [[package]]
 name = "tauri-plugin-debug-bridge"
-version = "0.2.4"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "axum",
