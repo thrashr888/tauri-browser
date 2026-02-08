@@ -160,14 +160,17 @@ fn build_router<R: Runtime>(state: Arc<BridgeState<R>>, token: String) -> Router
         .with_state(state);
 
     // Combine stateless health route with stateful routes, then apply security layers.
+    // Layer order: outermost layer is the LAST .layer() call.
+    // Extension must be outer so auth_middleware can read it from request extensions.
     Router::new()
         .route("/health", get(health))
         .merge(stateful)
         // Security: 1 MB body size limit
         .layer(DefaultBodyLimit::max(1_048_576))
-        // Security: auth token middleware
-        .layer(axum::Extension(auth_token))
+        // Security: auth token check (reads AuthToken from extensions)
         .layer(middleware::from_fn(auth_middleware))
+        // Inject auth token into request extensions (must be outermost)
+        .layer(axum::Extension(auth_token))
 }
 
 async fn health() -> Json<HealthResponse> {
