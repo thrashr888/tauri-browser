@@ -67,7 +67,9 @@ If any of these are missing, Tauri silently blocks the command — no error, jus
 
 ## Publishing
 
-Both crates are published to crates.io via trusted publishing (GitHub Actions OIDC). Pushing to `main` auto-publishes if the version in `Cargo.toml` changed. No manual `cargo publish` needed — just bump the version and push.
+Both crates are published to crates.io via trusted publishing (GitHub Actions OIDC). Pushing a `v*` tag triggers the release workflow. Just bump the version and tag.
+
+When bumping versions, **always commit `Cargo.lock` together with `Cargo.toml` changes**. This is a workspace with a binary crate — the lockfile must stay in sync.
 
 ## Beads Issue Tracking
 
